@@ -10,36 +10,36 @@ from cv_bridge import CvBridge
 from flask import Flask, request, jsonify
 from geometry_msgs.msg import Pose
 import random
-from holodex.components import RobotController
 import spdlog
-from holodex.constants import *
-
 from std_msgs.msg import Float64MultiArray
+import click
 
 rospy.init_node("targeting", anonymous=True)
 
 
 class Targeting:
-    def __init__(self):
+    def __init__(
+        self, marker_id, marker_size, ee_topic, image_topic, camera_info_topic
+    ):
         self.logger = spdlog.ConsoleLogger("Targeting")
+        self.logger.info("Initializing Targeting node...")
+
+        self.acruco_id = marker_id
+        self.marker_size = marker_size
 
         self.robot_tcp_position_sub = rospy.Subscriber(
-            KEYBOARD_EE_TOPIC, Float64MultiArray, self._read_tcp_position_sub
+            ee_topic, Float64MultiArray, self._read_tcp_position_sub
         )
-        self.rgb_sub = rospy.Subscriber(
-            "/cv_camera/image_raw", Image, self._bgr_callback
-        )
+        self.rgb_sub = rospy.Subscriber(image_topic, Image, self._bgr_callback)
         self.camera_info_sub = rospy.Subscriber(
-            "/cv_camera/camera_info", CameraInfo, self._camera_info_callback
+            camera_info_topic, CameraInfo, self._camera_info_callback
         )
         self.aruco_rgb_pub = rospy.Publisher("/aruco_rgb", Image, queue_size=10)
-        self.camera_info_loaded = False
-        self._cv_bridge = CvBridge()
         self.target_pose_pub = rospy.Publisher("/target_pose", Pose, queue_size=10)
 
-        self.marker_size = 0.078
-        self.trans_mats = [None]
-        self.acruco_id = 582
+        self.camera_info_loaded = False
+        self._cv_bridge = CvBridge()
+        self.trans_mats = []
 
     def _read_tcp_position_sub(self, msg):
         self.cur_tcp_pose = np.array(msg.data)
@@ -164,7 +164,35 @@ class Targeting:
                     self.logger.warning("Not enough views collected for calibration.")
 
 
-if __name__ == "__main__":
-    targeting = Targeting()
+@click.command()
+@click.option("--marker_id", default=582, help="Aruco Marker ID (default: 582)")
+@click.option(
+    "--marker_size", default=0.078, help="Aruco Marker Size in meters (default: 0.078)"
+)
+@click.option(
+    "--ee_topic", default="/ee_pose", help="End-effector pose topic (default: /ee_pose)"
+)
+@click.option(
+    "--image_topic",
+    default="/cv_camera/image_raw",
+    help="Camera image topic (default: /cv_camera/image_raw)",
+)
+@click.option(
+    "--camera_info_topic",
+    default="/cv_camera/camera_info",
+    help="Camera info topic (default: /cv_camera/camera_info)",
+)
+def main(marker_id, marker_size, ee_topic, image_topic, camera_info_topic):
+    targeting = Targeting(
+        marker_id=marker_id,
+        marker_size=marker_size,
+        ee_topic=ee_topic,
+        image_topic=image_topic,
+        camera_info_topic=camera_info_topic,
+    )
     time.sleep(2)
     targeting.calibrate()
+
+
+if __name__ == "__main__":
+    main()
