@@ -13,16 +13,17 @@ import random
 import spdlog
 from std_msgs.msg import Float64MultiArray
 import click
+from utils import pose_to_transform
 
-rospy.init_node("targeting", anonymous=True)
+rospy.init_node("calibration", anonymous=True)
 
 
 class Targeting:
     def __init__(
         self, marker_id, marker_size, ee_topic, image_topic, camera_info_topic
     ):
-        self.logger = spdlog.ConsoleLogger("Targeting")
-        self.logger.info("Initializing Targeting node...")
+        self.logger = spdlog.ConsoleLogger("CalibrationLogger")
+        self.logger.info("Initializing Calibration node...")
 
         self.acruco_id = marker_id
         self.marker_size = marker_size
@@ -47,10 +48,7 @@ class Targeting:
     def _g2r_callback(self):
         ret = self.cur_tcp_pose
         print("ret:", ret)
-        rot_matrix = R.from_quat([ret[4], ret[5], ret[6], ret[3]]).as_matrix()
-        transformation_matrix = np.eye(4)
-        transformation_matrix[:3, :3] = rot_matrix
-        transformation_matrix[:3, 3] = np.array(ret[0:3])
+        transformation_matrix = pose_to_transform(ret[3:], mode="euler")
         print("transformation_matrix:", transformation_matrix)
         self.g2r = transformation_matrix
 
