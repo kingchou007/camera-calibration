@@ -12,7 +12,7 @@ from cv_bridge import CvBridge
 from std_msgs.msg import Float64MultiArray
 
 
-class Targeting:
+class HandInEyeCalibrator:
     def __init__(
         self, marker_id, marker_size, ee_topic, image_topic, camera_info_topic
     ):
@@ -43,9 +43,11 @@ class Targeting:
         self.aruco_rgb_pub = rospy.Publisher("/aruco_rgb", Image, queue_size=10)
         self.target_pose_pub = rospy.Publisher("/target_pose", Pose, queue_size=10)
 
+
     def _read_ee_position_sub(self, msg):
         """Callback for robot end effector position"""
         self.cur_ee_pose = np.array(msg.data)
+
 
     def _ee2base_callback(self):
         """Calculate end effector to base transformation"""
@@ -59,6 +61,7 @@ class Targeting:
         rospy.loginfo(f"Transformation matrix: {transformation_matrix}")
         self.ee2base = transformation_matrix
         return True
+
 
     def _camera_info_callback(self, msg):
         """Process camera intrinsic parameters"""
@@ -74,6 +77,7 @@ class Targeting:
             self.distortion_coefficients = np.zeros(5)
             self.camera_info_loaded = True
             rospy.loginfo("Camera intrinsics loaded.")
+
 
     def _bgr_callback(self, msg):
         """Process incoming camera images and detect ArUco markers"""
@@ -149,11 +153,13 @@ class Targeting:
                 self._cv_bridge.cv2_to_imgmsg(self.bgr_image, encoding="bgr8")
             )
 
+
     def vis_targeting(self):
         """Get the transformation matrix of the detected marker"""
         if not self.trans_mats:
             return None
         return self.trans_mats[0]
+
 
     def publish_target_pose(self, transform_matrix):
         """Publish a transformation matrix as a ROS Pose message"""
@@ -167,6 +173,7 @@ class Targeting:
         target_msg.orientation.z = quaternion[2]
         target_msg.orientation.w = quaternion[3]
         self.target_pose_pub.publish(target_msg)
+
 
     def calibrate(self):
         """Perform hand-eye calibration"""
@@ -199,6 +206,7 @@ class Targeting:
                     f"Insufficient calibration data. Need at least 3 views, current: {len(target2cam)}"
                 )
                 rospy.loginfo("Please continue collecting calibration points...")
+
 
     def _perform_calibration(self, target2cam, ee2base_list):
         """Execute the hand-eye calibration with collected data"""
@@ -261,7 +269,7 @@ def init_ros_node():
 )
 def main(marker_id, marker_size, ee_topic, image_topic, camera_info_topic):
     init_ros_node()
-    targeting = Targeting(
+    calibrator = HandInEyeCalibrator(
         marker_id=marker_id,
         marker_size=marker_size,
         ee_topic=ee_topic,
@@ -269,7 +277,7 @@ def main(marker_id, marker_size, ee_topic, image_topic, camera_info_topic):
         camera_info_topic=camera_info_topic,
     )
     time.sleep(2)  # Wait for subscribers to connect
-    targeting.calibrate()
+    calibrator.calibrate()
 
 
 if __name__ == "__main__":
