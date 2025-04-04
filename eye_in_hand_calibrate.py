@@ -15,14 +15,13 @@ from std_msgs.msg import Float64MultiArray
 import click
 from utils import pose_to_transform
 
-rospy.init_node("calibration", anonymous=True)
-
+rospy.init_node('targeting', anonymous=True)
 
 class Targeting:
     def __init__(
         self, marker_id, marker_size, ee_topic, image_topic, camera_info_topic
     ):
-        self.logger = spdlog.ConsoleLogger("CalibrationLogger")
+        self.logger = spdlog.ConsoleLogger("Targeting")
         self.logger.info("Initializing Calibration node...")
 
         self.acruco_id = marker_id
@@ -55,13 +54,15 @@ class Targeting:
     def _camera_info_callback(self, msg):
         if not self.camera_info_loaded:
             self.intrinsic_matrix = {
-                "fx": msg.K[0],
-                "fy": msg.K[4],
-                "cx": msg.K[2],
-                "cy": msg.K[5],
+                'fx': msg.data[0],
+                'fy': msg.data[4],
+                'cx': msg.data[2],
+                'cy': msg.data[5]
             }
-            self.distortion_coefficients = np.array(msg.D)
+            # Optionally get distortion from somewhere if your camera is calibrated
+            self.distortion_coefficients = np.zeros(5) 
             self.camera_info_loaded = True
+            rospy.loginfo("Camera intrinsics loaded.")
 
     def _bgr_callback(self, msg):
         self.origin_image = self._cv_bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
@@ -73,12 +74,13 @@ class Targeting:
         corners, ids, rejected = cv2.aruco.detectMarkers(
             self.bgr_image, aruco_dict, parameters=aruco_params
         )
+        
         mtx = np.array(
             [
                 [self.intrinsic_matrix["fx"], 0, self.intrinsic_matrix["cx"]],
                 [0, self.intrinsic_matrix["fy"], self.intrinsic_matrix["cy"]],
                 [0, 0, 1],
-            ]
+            ], dtype=np.float32
         )
 
         dist = np.zeros(5)
@@ -116,6 +118,12 @@ class Targeting:
                 self._cv_bridge.cv2_to_imgmsg(self.bgr_image, encoding="bgr8")
             )
 
+    def vis_targeting(self, test=False):
+        if self.trans_mats == []:
+            return None
+
+        return self.trans_mats[0]
+
     def calibrate(self):
         o2cs = []
         g2rs = []
@@ -124,7 +132,7 @@ class Targeting:
             if flag == "y":
                 break
             else:
-                o2c = self.vis_targeting(test=False)
+                o2c = self.vis_targeting()
                 print("o2c: ", o2c)
                 if o2c is not None:
                     o2cs.append(o2c)
@@ -177,7 +185,7 @@ class Targeting:
 )
 @click.option(
     "--camera_info_topic",
-    default="/cv_camera/camera_info",
+    default="/robot_camera_1/intrinsics",
     help="Camera info topic (default: /cv_camera/camera_info)",
 )
 def main(marker_id, marker_size, ee_topic, image_topic, camera_info_topic):
