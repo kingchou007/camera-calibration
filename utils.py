@@ -7,21 +7,14 @@ def pose_to_transform(pose, mode="euler"):
     if mode not in ["euler", "quat"]:
         raise ValueError(f"Invalid mode '{mode}'. Use 'euler' or 'quat'.")
 
-    if mode == "euler" and len(pose) != 6:
-        raise ValueError(
-            "Pose must have 6 elements [x, y, z, roll, pitch, yaw] for 'euler' mode."
-        )
-    if mode == "quat" and len(pose) != 7:  # w in the first position or last position
-        raise ValueError(
-            "Pose must have 7 elements [x, y, z, qx, qy, qz, qw] for 'quat' mode."
-        )
-
     # Compute rotation matrix
     if mode == "euler":
-        # Extract Euler angles (roll, pitch, yaw)
-        roll, pitch, yaw = pose[3], pose[4], pose[5]
-        rot_matrix = R.from_euler("xyz", [roll, pitch, yaw], degrees=False).as_matrix()
+        # assert len(pose) ==3, "3 elements for Euler angles."
+        # # Extract Euler angles (roll, pitch, yaw)
+        # roll, pitch, yaw = pose[3], pose[4], pose[5]
+        rot_matrix = R.from_euler("xyz", [pose[3], pose[4], pose[5]], degrees=False).as_matrix()
     elif mode == "quat":
+        assert len(pose) == 4, "7 elements for quaternion."
         # Extract quaternion (qx, qy, qz, qw)
         qx, qy, qz, qw = pose[3], pose[4], pose[5], pose[6]
         rot_matrix = R.from_quat([qx, qy, qz, qw]).as_matrix()

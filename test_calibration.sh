@@ -3,6 +3,11 @@
 set -e
 echo "Starting Eye-in-Hand Calibration Script..."
 
+# Modify the following parameters
+MODE="eye_in_hand" # eye_in_hand or eye_to_hand
+TEST=True # True or False
+TEST_FILE="20_views_ctog.npy"
+
 # define parameters
 MARKER_ID=582
 MARKER_SIZE=0.0765
@@ -25,4 +30,7 @@ python3 eye_in_hand_calibrate.py \
     --marker_size $MARKER_SIZE \
     --ee_topic "$EE_TOPIC" \
     --image_topic "$IMAGE_TOPIC" \
-    --camera_info_topic "$CAMERA_INFO_TOPIC"
+    --camera_info_topic "$CAMERA_INFO_TOPIC" \
+    --test "$TEST" \
+    --test_file "$TEST_FILE" \
+
