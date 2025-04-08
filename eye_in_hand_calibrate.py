@@ -1,26 +1,30 @@
-import os
 import cv2
 import numpy as np
 import rospy
-from sensor_msgs.msg import Image, CameraInfo
+from sensor_msgs.msg import Image
 from scipy.spatial.transform import Rotation as R
-from tf.transformations import quaternion_matrix
 import time
 from cv_bridge import CvBridge
-from flask import Flask, request, jsonify
 from geometry_msgs.msg import Pose
-import random
 import spdlog
 from std_msgs.msg import Float64MultiArray
 import click
 from utils import pose_to_transform
-from termcolor import cprint
 
-rospy.init_node('targeting', anonymous=True)
+rospy.init_node("targeting", anonymous=True)
+
 
 class Targeting:
     def __init__(
-        self, marker_id, marker_size, ee_topic, image_topic, camera_info_topic, rotation_type, test, test_file
+        self,
+        marker_id,
+        marker_size,
+        ee_topic,
+        image_topic,
+        camera_info_topic,
+        rotation_type,
+        test,
+        test_file,
     ):
         self.logger = spdlog.ConsoleLogger("Targeting")
         self.logger.info("Initializing Calibration node...")
@@ -33,9 +37,7 @@ class Targeting:
         )
         self.rgb_sub = rospy.Subscriber(image_topic, Image, self._bgr_callback)
         self.camera_info_sub = rospy.Subscriber(
-            camera_info_topic,
-            Float64MultiArray,
-            self._camera_info_callback
+            camera_info_topic, Float64MultiArray, self._camera_info_callback
         )
         self.aruco_rgb_pub = rospy.Publisher("/aruco_rgb", Image, queue_size=10)
         self.target_pose_pub = rospy.Publisher("/target_pose", Pose, queue_size=10)
@@ -60,14 +62,14 @@ class Targeting:
     def _camera_info_callback(self, msg):
         if not self.camera_info_loaded:
             self.intrinsic_matrix = {
-                'fx': msg.data[0],
-                'fy': msg.data[4],
-                'cx': msg.data[2],
-                'cy': msg.data[5]
+                "fx": msg.data[0],
+                "fy": msg.data[4],
+                "cx": msg.data[2],
+                "cy": msg.data[5],
             }
 
             # Optionally get distortion from somewhere if your camera is calibrated
-            self.distortion_coefficients = np.zeros(5) 
+            self.distortion_coefficients = np.zeros(5)
             self.camera_info_loaded = True
             rospy.loginfo("Camera intrinsics loaded.")
 
@@ -123,26 +125,30 @@ class Targeting:
             self.aruco_rgb_pub.publish(
                 self._cv_bridge.cv2_to_imgmsg(self.bgr_image, encoding="bgr8")
             )
+
     def vis_targeting(self, test=False):
         if test:
-            
             T_camera_to_gripper = np.load(self.test_file)
 
             # get current ee pose
 
             self._g2r_callback()
-            gripper2base = self.g2r 
+            gripper2base = self.g2r
             cprint("please don't move your robot arm!!!", "red")
 
-            T_base_to_camera = np.linalg.inv(T_camera_to_gripper) @ np.linalg.inv(gripper2base)
+            T_base_to_camera = np.linalg.inv(T_camera_to_gripper) @ np.linalg.inv(
+                gripper2base
+            )
 
             axis_length = 0.1
-            axes_points_base = np.array([
-                [0, 0, 0],
-                [axis_length, 0, 0],
-                [0, axis_length, 0],
-                [0, 0, axis_length]
-            ])
+            axes_points_base = np.array(
+                [
+                    [0, 0, 0],
+                    [axis_length, 0, 0],
+                    [0, axis_length, 0],
+                    [0, 0, axis_length],
+                ]
+            )
 
             ones = np.ones((axes_points_base.shape[0], 1))
             axes_points_base_homogeneous = np.hstack([axes_points_base, ones])
@@ -150,17 +156,13 @@ class Targeting:
             axes_points_camera = (T_base_to_camera @ axes_points_base_homogeneous.T).T
 
             points_3D = axes_points_camera[:, :3]
-            
-            fx = self.intrinsic_matrix['fx']
-            fy = self.intrinsic_matrix['fy']
-            cx = self.intrinsic_matrix['cx']
-            cy = self.intrinsic_matrix['cy']
 
-            mtx = np.array([
-                [fx, 0, cx],
-                [0, fy, cy],
-                [0,  0,  1]
-            ])
+            fx = self.intrinsic_matrix["fx"]
+            fy = self.intrinsic_matrix["fy"]
+            cx = self.intrinsic_matrix["cx"]
+            cy = self.intrinsic_matrix["cy"]
+
+            mtx = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
 
             dist = np.zeros(5)
 
@@ -169,7 +171,7 @@ class Targeting:
 
             projected_points, _ = cv2.projectPoints(points_3D, rvec, tvec, mtx, dist)
             projected_points = projected_points.reshape(-1, 2)
-            
+
             origin = tuple(projected_points[0].astype(int))
             x_axis = tuple(projected_points[1].astype(int))
             y_axis = tuple(projected_points[2].astype(int))
@@ -182,17 +184,16 @@ class Targeting:
             cv2.line(image, origin, z_axis, (255, 0, 0), 2)
 
             cv2.circle(image, origin, radius=5, color=(0, 0, 0), thickness=-1)
-            
+
             cv2.imshow("Base Position and Orientation", image)
             cv2.waitKey(0)
             cv2.destroyAllWindows()
 
-
         if self.trans_mats == []:
             return None
-        
+
         return self.trans_mats[0]
-    
+
     # TODO: save all pose
     def calibrate(self):
         o2cs = []
@@ -231,12 +232,14 @@ class Targeting:
                     c2g[:3, :3] = R_cam2gripper
                     c2g[:3, 3] = t_cam2gripper[:, 0]
 
-
                     self.logger.info(
                         f"Current Calibration {len(o2cs)} views. c2g: {c2g}"
                     )
 
+                    # Save calibration results
                     np.save(f"{len(o2cs)}_views_ctog.npy", c2g)
+
+                    # Save all poses for future auto-calibration
                 else:
                     # If you have fewer than 3, just give some default transform
                     g2c = np.eye(4)
@@ -244,38 +247,24 @@ class Targeting:
 
 
 @click.command()
-@click.option("--marker_id", default=582, help="Aruco Marker ID (default: 582)")
-@click.option(
-    "--marker_size", default=0.078, help="Aruco Marker Size in meters (default: 0.078)"
-)
-@click.option(
-    "--ee_topic", default="/ee_pose", help="End-effector pose topic (default: /ee_pose)"
-)
-@click.option(
-    "--image_topic",
-    default="/cv_camera/image_raw",
-    help="Camera image topic (default: /cv_camera/image_raw)",
-)
-@click.option(
-    "--camera_info_topic",
-    default="/robot_camera_1/intrinsics",
-    help="Camera info topic (default: /cv_camera/camera_info)",
-)
-@click.option(
-    "--rotation_type",
-    default="euler",
-)
-@click.option(
-    "--test",
-    default=False,
-    help="Run in test mode using saved calibration data (default: False)",
-)
-@click.option(
-    "--test_file",
-    default="10_views_ctog.npy",
-    help="Test file to load for calibration data (default: 10views_ctog.npy)",
-)
-def main(marker_id, marker_size, ee_topic, image_topic, camera_info_topic, rotation_type, test, test_file):
+@click.option("--marker_id", "-m", default=582, help="Aruco Marker ID")
+@click.option("--marker_size", "-s", default=0.078, help="Marker Size in meters")
+@click.option("--ee_topic", "-e", default="/ee_pose", help="End-effector pose topic")
+@click.option("--image_topic", "-i", default="/cv_camera/image_raw", help="Camera image topic")
+@click.option("--camera_info_topic", "-c", default="/robot_camera_1/intrinsics", help="Camera info topic")
+@click.option("--rotation_type", "-r", default="euler", help="Rotation representation type")
+@click.option("--test", "-t", is_flag=True, help="Run in test mode")
+@click.option("--test_file", "-f", default="10_views_ctog.npy", help="Test calibration file")
+def main(
+    marker_id,
+    marker_size,
+    ee_topic,
+    image_topic,
+    camera_info_topic,
+    rotation_type,
+    test,
+    test_file,
+):
     targeting = Targeting(
         marker_id=marker_id,
         marker_size=marker_size,
@@ -285,7 +274,6 @@ def main(marker_id, marker_size, ee_topic, image_topic, camera_info_topic, rotat
         rotation_type=rotation_type,
         test=test,
         test_file=test_file,
-
     )
     time.sleep(2)
     targeting.calibrate()
