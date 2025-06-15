@@ -14,16 +14,17 @@ The calibration process uses ArUco markers as reference points. By capturing mul
 For the calibration to work properly, the following ROS topics must be available:
 
 1. **End-Effector Pose Topic** (`/ee_pose` by default)
+
    - This topic should publish the current pose of the robot's end-effector
    - Message type: `std_msgs/Float64MultiArray`
    - The pose should include position and orientation information
-
 2. **Camera Image Topic** (`/cv_camera/image_raw` by default)
+
    - This topic should publish the raw images from the camera mounted on the end-effector
    - Message type: `sensor_msgs/Image`
    - The images will be used to detect the ArUco markers
-
 3. **Camera Info Topic** (`/robot_camera_1/intrinsics` by default)
+
    - This topic should publish the camera's intrinsic parameters
    - Message type: `std_msgs/Float64MultiArray`
 
