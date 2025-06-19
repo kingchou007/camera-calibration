@@ -87,3 +87,5 @@ This script automates the calibration process. Ensure the script is executable b
 ```bash
 chmod +x run_calibration.sh
 ```
+
+source /opt/ros/noetic/setup.bash

@@ -1,17 +1,55 @@
 import cv2
 import numpy as np
 import rospy
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CameraInfo
+from cv_bridge import CvBridge
+from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import Float64MultiArray
 from scipy.spatial.transform import Rotation as R
 import time
-from cv_bridge import CvBridge
-from geometry_msgs.msg import Pose
-import spdlog
-from std_msgs.msg import Float64MultiArray
 import click
 from utils import pose_to_transform
+from termcolor import cprint
+from geometry_msgs.msg import PoseStamped
+import json
 
 rospy.init_node("targeting", anonymous=True)
+
+
+# ROS Topic Data Types:
+# /end_effector_pose (geometry_msgs/PoseStamped):
+#   header:
+#     seq: sequence ID
+#     stamp: timestamp
+#     frame_id: reference frame
+#   pose:
+#     position: (x,y,z)
+#     orientation: (x,y,z,w) quaternion
+
+# /camera/color/camera_info (sensor_msgs/CameraInfo):
+#   header: 
+#     seq: sequence ID
+#     stamp: timestamp
+#     frame_id: reference frame
+#   height: image height
+#   width: image width
+#   distortion_model: distortion model name
+#   D: distortion coefficients
+#   K: 3x3 camera intrinsic matrix
+#   R: 3x3 rectification matrix
+#   P: 3x4 projection matrix
+
+# /camera/color/image_raw (sensor_msgs/Image):
+#   header:
+#     seq: sequence ID
+#     stamp: timestamp
+#     frame_id: reference frame
+#   height: image height
+#   width: image width
+#   encoding: pixel encoding
+#   is_bigendian: endian order
+#   step: row length in bytes
+#   data: actual image data
 
 
 class Targeting:
@@ -25,36 +63,50 @@ class Targeting:
         rotation_type,
         test,
         test_file,
+        save_dir,
     ):
-        self.logger = spdlog.ConsoleLogger("Targeting")
-        self.logger.info("Initializing Calibration node...")
 
         self.acruco_id = marker_id
-        self.marker_size = marker_size
+        self.marker_size = marker_size # Initialize intrinsic matrix
 
         self.robot_tcp_position_sub = rospy.Subscriber(
-            ee_topic, Float64MultiArray, self._read_tcp_position_sub
+            ee_topic, PoseStamped, self._read_tcp_position_sub
         )
-        self.rgb_sub = rospy.Subscriber(image_topic, Image, self._bgr_callback)
         self.camera_info_sub = rospy.Subscriber(
-            camera_info_topic, Float64MultiArray, self._camera_info_callback
+            camera_info_topic, CameraInfo, self._camera_info_callback
         )
+
+        self.rgb_sub = rospy.Subscriber(image_topic, Image, self._bgr_callback)
+        
+
         self.aruco_rgb_pub = rospy.Publisher("/aruco_rgb", Image, queue_size=10)
-        self.target_pose_pub = rospy.Publisher("/target_pose", Pose, queue_size=10)
+        self.target_pose_pub = rospy.Publisher("/target_pose", PoseStamped, queue_size=10)
         self.rotation_type = rotation_type
         self.test = test
         self.test_file = test_file
-
+        self.save_dir = save_dir
         self.camera_info_loaded = False
         self._cv_bridge = CvBridge()
         self.trans_mats = []
 
+
     def _read_tcp_position_sub(self, msg):
-        self.cur_tcp_pose = np.array(msg.data)
+        # Convert Pose message to numpy array
+        # ! we only accept the quaternion order of w,x,y,z
+        pose_array = [
+            msg.pose.position.x,
+            msg.pose.position.y,
+            msg.pose.position.z,
+            msg.pose.orientation.w,  # ROS uses w,x,y,z quaternion order
+            msg.pose.orientation.x,
+            msg.pose.orientation.y, 
+            msg.pose.orientation.z
+        ]
+        self.cur_tcp_pose = np.array(pose_array)
+        # cprint(f"cur_tcp_pose: {self.cur_tcp_pose}", "green")
 
     def _g2r_callback(self):
         ret = self.cur_tcp_pose
-        print("ret:", ret)
         transformation_matrix = pose_to_transform(ret, mode=self.rotation_type)
         print("transformation_matrix:", transformation_matrix)
         self.g2r = transformation_matrix
@@ -62,18 +114,17 @@ class Targeting:
     def _camera_info_callback(self, msg):
         if not self.camera_info_loaded:
             self.intrinsic_matrix = {
-                "fx": msg.data[0],
-                "fy": msg.data[4],
-                "cx": msg.data[2],
-                "cy": msg.data[5],
+                "fx": msg.K[0],
+                "fy": msg.K[4],
+                "cx": msg.K[2],
+                "cy": msg.K[5],
             }
 
             # Optionally get distortion from somewhere if your camera is calibrated
             self.distortion_coefficients = np.zeros(5)
             self.camera_info_loaded = True
-            rospy.loginfo("Camera intrinsics loaded.")
 
-    def _bgr_callback(self, msg):
+    def _bgr_callback(self, msg):            
         self.origin_image = self._cv_bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
         self.bgr_image = self.origin_image.copy()
 
@@ -83,6 +134,7 @@ class Targeting:
         corners, ids, rejected = cv2.aruco.detectMarkers(
             self.bgr_image, aruco_dict, parameters=aruco_params
         )
+
         mtx = np.array(
             [
                 [self.intrinsic_matrix["fx"], 0, self.intrinsic_matrix["cx"]],
@@ -114,6 +166,7 @@ class Targeting:
                     filter_corners.append(corners[i])
                     filter_ids.append(ids[i])
 
+            # Draw detected markers
             image_markers = cv2.aruco.drawDetectedMarkers(
                 self.bgr_image.copy(), filter_corners, np.array(filter_ids)
             )
@@ -121,7 +174,7 @@ class Targeting:
                 self._cv_bridge.cv2_to_imgmsg(image_markers, encoding="bgr8")
             )
         else:
-            self.logger.error("No AruCo markers detected.")
+            print("NO Markers detected")
             self.aruco_rgb_pub.publish(
                 self._cv_bridge.cv2_to_imgmsg(self.bgr_image, encoding="bgr8")
             )
@@ -196,11 +249,15 @@ class Targeting:
 
     # TODO: save all pose
     def calibrate(self):
-        o2cs = []
-        g2rs = []
+        o2cs = []  # object to camera: detected from aruco marker -> T_cam_marker
+        g2rs = []  # gripper to robot -> T_base_ee
+        ee_poses = []  # Store end-effector poses
+
+        # Create data folder if it doesn't exist
+
         while True:
-            flag = input("Press y to end calibration, or any other key to continue:")
-            if flag == "y":
+            flag = input("Press q to end calibration, or any other key to continue:")
+            if flag == "q":
                 break
             else:
                 o2c = self.vis_targeting(test=self.test)
@@ -210,9 +267,11 @@ class Targeting:
                     self._g2r_callback()
                     g2r = self.g2r
                     g2rs.append(g2r)
-                    self.logger.info(f"Calibration data collected. {len(o2cs)} views.")
+                    # Store current end-effector pose
+                    ee_poses.append(self.cur_tcp_pose.tolist())
+                    rospy.loginfo(f"Calibration data collected. {len(o2cs)} views.")
                 else:
-                    self.logger.error("No AruCo markers detected.")
+                    rospy.logwarn("No AruCo markers detected.")
 
                 if len(o2cs) >= 3:
                     R_gripper2base = [g[:3, :3] for g in g2rs]
@@ -225,25 +284,33 @@ class Targeting:
                         t_gripper2base,
                         R_obj2cam,
                         t_obj2cam,
-                        method=cv2.CALIB_HAND_EYE_TSAI,
+                        method=cv2.CALIB_HAND_EYE_TSAI, 
                     )
 
                     c2g = np.eye(4)
                     c2g[:3, :3] = R_cam2gripper
                     c2g[:3, 3] = t_cam2gripper[:, 0]
 
-                    self.logger.info(
-                        f"Current Calibration {len(o2cs)} views. c2g: {c2g}"
-                    )
-
+                    rospy.loginfo(f"Current Calibration {len(o2cs)} views.")
+                    cprint(f"c2g:\n{c2g}", "green")
                     # Save calibration results
-                    np.save(f"{len(o2cs)}_views_ctog.npy", c2g)
+                    np.save(f"{self.save_dir}/{len(o2cs)}_views_ctog.npy", c2g)
 
-                    # Save all poses for future auto-calibration
                 else:
                     # If you have fewer than 3, just give some default transform
                     g2c = np.eye(4)
                     g2c[2, 3] = 0.3
+
+        # Save only the collected end-effector poses used for calibration
+        if ee_poses:
+            calibration_data = {
+                "method": "eye_in_hand",
+                "pose_views": len(ee_poses),  # Number of poses collected
+                "ee_poses": ee_poses  # List of end-effector poses used in calibration
+            }
+            
+            with open(f"{self.save_dir}/calibration_results_{time.strftime('%Y%m%d_%H%M%S')}.json", 'w') as f:
+                json.dump([calibration_data], f, indent=4)
 
 
 @click.command()
@@ -255,6 +322,7 @@ class Targeting:
 @click.option("--rotation_type", "-r", default="euler", help="Rotation representation type")
 @click.option("--test", "-t", is_flag=True, help="Run in test mode")
 @click.option("--test_file", "-f", default="10_views_ctog.npy", help="Test calibration file")
+@click.option("--save_dir", "-d", default="data", help="Save directory")
 def main(
     marker_id,
     marker_size,
@@ -264,6 +332,7 @@ def main(
     rotation_type,
     test,
     test_file,
+    save_dir,
 ):
     targeting = Targeting(
         marker_id=marker_id,
@@ -274,6 +343,7 @@ def main(
         rotation_type=rotation_type,
         test=test,
         test_file=test_file,
+        save_dir=save_dir,
     )
     time.sleep(2)
     targeting.calibrate()
