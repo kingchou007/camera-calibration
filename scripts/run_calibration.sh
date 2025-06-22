@@ -9,6 +9,17 @@ echo "   Authors: Jinzhou Li, Jiyao Zhang"
 echo "   Date: $(date +%Y-%m-%d)"
 echo -e "============================================\e[0m"
 
+# Launch ROS camera nodes in a new terminal
+echo -e "\e[36mLaunching ROS camera nodes...\e[0m"
+gnome-terminal -- bash -c "
+echo 'Starting ROS camera nodes...';
+roslaunch realsense2_camera rs_camera.launch;
+exec bash"
+
+# Wait for ROS nodes to initialize
+echo -e "\e[36mWaiting for ROS nodes to initialize...\e[0m"
+sleep 2
+
 # Configuration parameters
 MODE=${1:-"eye_to_hand"}  # Default to eye_in_hand if not specified
 TEST=${2:-false}          # Default to no test mode

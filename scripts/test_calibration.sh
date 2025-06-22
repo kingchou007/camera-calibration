@@ -40,6 +40,3 @@ python3 calibration/${MODE}_calibrate.py \
     --rotation_type $ROTATION_TYPE \
     --test "$TEST" \
     --test_file "$TEST_FILE"
-    
-git config --global user.name "Your Name"
-git config --global user.email "your_email@example.com"
