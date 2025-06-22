@@ -101,3 +101,9 @@ fi
 eval $CMD
 
 echo -e "\n\e[36mCalibration completed successfully!\e[0m"
+
+# Cleanup: Kill rqt_image_view and camera nodes
+echo -e "\n\e[36mCleaning up...\e[0m"
+kill $RQT_PID 2>/dev/null || true
+kill $CAMERA_PID 2>/dev/null || true
+rosnode kill /camera/realsense2_camera_manager /camera/realsense2_camera 2>/dev/null || true
