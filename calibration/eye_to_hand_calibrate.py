@@ -15,43 +15,6 @@ import json
 
 rospy.init_node("targeting", anonymous=True)
 
-
-# ROS Topic Data Types:
-# /end_effector_pose (geometry_msgs/PoseStamped):
-#   header:
-#     seq: sequence ID
-#     stamp: timestamp
-#     frame_id: reference frame
-#   pose:
-#     position: (x,y,z)
-#     orientation: (x,y,z,w) quaternion
-
-# /camera/color/camera_info (sensor_msgs/CameraInfo):
-#   header: 
-#     seq: sequence ID
-#     stamp: timestamp
-#     frame_id: reference frame
-#   height: image height
-#   width: image width
-#   distortion_model: distortion model name
-#   D: distortion coefficients
-#   K: 3x3 camera intrinsic matrix
-#   R: 3x3 rectification matrix
-#   P: 3x4 projection matrix
-
-# /camera/color/image_raw (sensor_msgs/Image):
-#   header:
-#     seq: sequence ID
-#     stamp: timestamp
-#     frame_id: reference frame
-#   height: image height
-#   width: image width
-#   encoding: pixel encoding
-#   is_bigendian: endian order
-#   step: row length in bytes
-#   data: actual image data
-
-
 class Targeting:
     def __init__(
         self,
@@ -77,8 +40,6 @@ class Targeting:
         )
 
         self.rgb_sub = rospy.Subscriber(image_topic, Image, self._bgr_callback)
-        
-
         self.aruco_rgb_pub = rospy.Publisher("/aruco_rgb", Image, queue_size=10)
         self.target_pose_pub = rospy.Publisher("/target_pose", PoseStamped, queue_size=10)
         self.rotation_type = rotation_type
@@ -88,7 +49,6 @@ class Targeting:
         self.camera_info_loaded = False
         self._cv_bridge = CvBridge()
         self.trans_mats = []
-
 
     def _read_tcp_position_sub(self, msg):
         # Convert Pose message to numpy array
@@ -181,7 +141,7 @@ class Targeting:
 
     def vis_targeting(self, test=False):
         if test:
-            T_camera_to_gripper = np.load(self.test_file)
+            T_camera_2_base = np.load(self.test_file)
 
             # get current ee pose
 
@@ -189,11 +149,12 @@ class Targeting:
             gripper2base = self.g2r
             cprint("please don't move your robot arm!!!", "red")
 
-            T_base_to_camera = np.linalg.inv(T_camera_to_gripper) @ np.linalg.inv(
+            T_base_2_camera = np.linalg.inv(T_camera_2_base) @ np.linalg.inv(
                 gripper2base
             )
 
             axis_length = 0.1
+            # define the axis points in the base frame
             axes_points_base = np.array(
                 [
                     [0, 0, 0],
@@ -202,12 +163,15 @@ class Targeting:
                     [0, 0, axis_length],
                 ]
             )
-
+            
+            # convert to homogeneous coordinates
             ones = np.ones((axes_points_base.shape[0], 1))
-            axes_points_base_homogeneous = np.hstack([axes_points_base, ones])
+            axes_points_base_homogeneous = np.hstack([axes_points_base, ones]) # (4, 4)
 
-            axes_points_camera = (T_base_to_camera @ axes_points_base_homogeneous.T).T
+            # convert to camera frame
+            axes_points_camera = (T_base_2_camera @ axes_points_base_homogeneous.T).T # (4, 4)
 
+            # extract 3D points
             points_3D = axes_points_camera[:, :3]
 
             fx = self.intrinsic_matrix["fx"]
@@ -217,8 +181,10 @@ class Targeting:
 
             mtx = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
 
+            # define the distortion coefficients, assume 0
             dist = np.zeros(5)
 
+            # project the 3D points to the image plane
             rvec = np.zeros((3, 1))
             tvec = np.zeros((3, 1))
 
@@ -310,6 +276,9 @@ class Targeting:
             
             with open(f"{self.save_dir}/calibration_results_{time.strftime('%Y%m%d_%H%M%S')}.json", 'w') as f:
                 json.dump([calibration_data], f, indent=4)
+
+    def calibrate_from_npy(self, views=5):
+        pass 
 
 
 @click.command()
