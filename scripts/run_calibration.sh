@@ -20,6 +20,13 @@ exec bash"
 echo -e "\e[36mWaiting for ROS nodes to initialize...\e[0m"
 sleep 2
 
+# open a new terminal to run the rqt_image_view
+echo -e "\e[36mLaunching rqt_image_view...\e[0m"
+gnome-terminal -- bash -c "
+echo 'Starting rqt_image_view...';
+rqt_image_view;
+exec bash"
+
 # Configuration parameters
 MODE=${1:-"eye_to_hand"}  # Default to eye_in_hand if not specified
 TEST=${2:-false}          # Default to no test mode
