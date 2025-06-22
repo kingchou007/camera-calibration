@@ -13,6 +13,7 @@ echo -e "============================================\e[0m"
 echo -e "\e[36mLaunching ROS camera nodes...\e[0m"
 gnome-terminal -- bash -c "
 echo 'Starting ROS camera nodes...';
+source /opt/ros/noetic/setup.bash
 roslaunch realsense2_camera rs_camera.launch;
 exec bash"
 
@@ -24,8 +25,12 @@ sleep 2
 echo -e "\e[36mLaunching rqt_image_view...\e[0m"
 gnome-terminal -- bash -c "
 echo 'Starting rqt_image_view...';
+source /opt/ros/noetic/setup.bash
 rqt_image_view;
 exec bash"
+
+echo -e "\e[36mWaiting for rqt_image_view to initialize...\e[0m"
+sleep 2
 
 # Configuration parameters
 MODE=${1:-"eye_to_hand"}  # Default to eye_in_hand if not specified
